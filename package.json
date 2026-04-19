@@ -6,7 +6,15 @@
     "build": "mkdir -p dist && cp index.html dist/",
     "serve": "npx serve ."
   },
-  "keywords": ["game", "voxel", "soccer", "threejs"],
+  "keywords": [
+    "game",
+    "voxel",
+    "soccer",
+    "threejs"
+  ],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "playwright": "^1.59.1"
+  }
 }

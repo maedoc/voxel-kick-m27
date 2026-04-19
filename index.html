@@ -137,9 +137,9 @@
         // Scene setup
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x2D1B4E);
-        scene.fog = new THREE.Fog(0x2D1B4E, 50, 150);
+        scene.fog = new THREE.Fog(0x2D1B4E, 200, 600);
 
-        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 2000);
         
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -168,13 +168,13 @@
         backLight.position.set(-20, 30, -20);
         scene.add(backLight);
 
-        // Constants
-        const ARENA_WIDTH = 80;
-        const ARENA_LENGTH = 100;
-        const WALL_HEIGHT = 20;
-        const WALL_THICKNESS = 3;
-        const GOAL_WIDTH = 18;
-        const GOAL_HEIGHT = 10;
+        // Constants - 4x scale
+        const ARENA_WIDTH = 320;
+        const ARENA_LENGTH = 400;
+        const WALL_HEIGHT = 80;
+        const WALL_THICKNESS = 12;
+        const GOAL_WIDTH = 72;
+        const GOAL_HEIGHT = 40;
         const GRAVITY = 0.015;
         const GROUND_FRICTION = 0.98;
         const AIR_FRICTION = 0.995;
@@ -214,35 +214,43 @@
 
         function createVoxelCar(color, darkColor) {
             const car = new THREE.Group();
+            
+            // Scale up for bigger arena
+            const scale = 4;
+            
+            // Body group (can flip independently)
+            const bodyGroup = new THREE.Group();
+            car.add(bodyGroup);
+            car.userData.bodyGroup = bodyGroup;
 
-            // Main body
-            createVoxelBox(3, 1.2, 4, color, car);
+            // Main body (scaled)
+            createVoxelBox(3 * scale, 1.2 * scale, 4 * scale, color, bodyGroup);
             
             // Cabin
-            createVoxelBox(2.4, 0.8, 2, darkColor, car);
-            const cabin = createVoxelBox(2.2, 0.6, 1.8, 0x333344, car);
-            cabin.position.y = 0.5;
-            cabin.position.z = -0.2;
+            createVoxelBox(2.4 * scale, 0.8 * scale, 2 * scale, darkColor, bodyGroup);
+            const cabin = createVoxelBox(2.2 * scale, 0.6 * scale, 1.8 * scale, 0x333344, bodyGroup);
+            cabin.position.y = 0.5 * scale;
+            cabin.position.z = -0.2 * scale;
 
             // Hood slope
-            const hood = createVoxelBox(2.8, 0.4, 1, color, car);
-            hood.position.z = 1.2;
-            hood.position.y = 0.2;
+            const hood = createVoxelBox(2.8 * scale, 0.4 * scale, 1 * scale, color, bodyGroup);
+            hood.position.z = 1.2 * scale;
+            hood.position.y = 0.2 * scale;
 
             // Rear
-            const rear = createVoxelBox(2.8, 0.6, 0.8, darkColor, car);
-            rear.position.z = -1.8;
-            rear.position.y = 0.2;
+            const rear = createVoxelBox(2.8 * scale, 0.6 * scale, 0.8 * scale, darkColor, bodyGroup);
+            rear.position.z = -1.8 * scale;
+            rear.position.y = 0.2 * scale;
 
             // Wheels
-            const wheelGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.4, 8);
+            const wheelGeo = new THREE.CylinderGeometry(0.5 * scale, 0.5 * scale, 0.4 * scale, 8);
             const wheelMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
             
             const wheelPositions = [
-                [-1.5, -0.5, 1.2],
-                [1.5, -0.5, 1.2],
-                [-1.5, -0.5, -1.2],
-                [1.5, -0.5, -1.2]
+                [-1.5 * scale, -0.5 * scale, 1.2 * scale],
+                [1.5 * scale, -0.5 * scale, 1.2 * scale],
+                [-1.5 * scale, -0.5 * scale, -1.2 * scale],
+                [1.5 * scale, -0.5 * scale, -1.2 * scale]
             ];
             
             wheelPositions.forEach(pos => {
@@ -250,26 +258,26 @@
                 wheel.rotation.z = Math.PI / 2;
                 wheel.position.set(...pos);
                 wheel.castShadow = true;
-                car.add(wheel);
+                bodyGroup.add(wheel);
             });
 
             // Headlights
-            const lightGeo = new THREE.BoxGeometry(0.3, 0.2, 0.1);
+            const lightGeo = new THREE.BoxGeometry(0.3 * scale, 0.2 * scale, 0.1 * scale);
             const lightMat = new THREE.MeshBasicMaterial({ color: 0xFFFFAA });
             const lightL = new THREE.Mesh(lightGeo, lightMat);
-            lightL.position.set(-0.8, 0, 2);
-            car.add(lightL);
+            lightL.position.set(-0.8 * scale, 0, 2 * scale);
+            bodyGroup.add(lightL);
             const lightR = new THREE.Mesh(lightGeo, lightMat);
-            lightR.position.set(0.8, 0, 2);
-            car.add(lightR);
+            lightR.position.set(0.8 * scale, 0, 2 * scale);
+            bodyGroup.add(lightR);
 
             // Boost exhaust
-            const exhaustGeo = new THREE.ConeGeometry(0.4, 1, 6);
+            const exhaustGeo = new THREE.ConeGeometry(0.4 * scale, 1 * scale, 6);
             const exhaustMat = new THREE.MeshBasicMaterial({ color: COLORS.boost, transparent: true, opacity: 0 });
             const exhaust = new THREE.Mesh(exhaustGeo, exhaustMat);
             exhaust.rotation.x = -Math.PI / 2;
-            exhaust.position.z = -2.5;
-            car.add(exhaust);
+            exhaust.position.z = -2.5 * scale;
+            bodyGroup.add(exhaust);
             car.userData.exhaust = exhaust;
 
             return car;
@@ -278,9 +286,12 @@
         function createVoxelBall() {
             const ball = new THREE.Group();
             
+            // Scale up for bigger arena
+            const scale = 4;
+            const radius = 2 * scale;
+            
             // Create icosphere approximation
             const segments = 2;
-            const radius = 2;
             
             // Core ball
             const coreGeo = new THREE.IcosahedronGeometry(radius, segments);
@@ -290,14 +301,14 @@
             ball.add(core);
 
             // Accent panels
-            const panelGeo = new THREE.BoxGeometry(1.5, 1.5, 0.3);
+            const panelGeo = new THREE.BoxGeometry(1.5 * scale, 1.5 * scale, 0.3 * scale);
             const panelMat = new THREE.MeshLambertMaterial({ color: COLORS.ballAccent });
             
             for (let i = 0; i < 6; i++) {
                 const panel = new THREE.Mesh(panelGeo, panelMat);
                 const angle = (i / 6) * Math.PI * 2;
-                panel.position.x = Math.cos(angle) * (radius + 0.1);
-                panel.position.z = Math.sin(angle) * (radius + 0.1);
+                panel.position.x = Math.cos(angle) * (radius + 0.5);
+                panel.position.z = Math.sin(angle) * (radius + 0.5);
                 panel.lookAt(0, 0, 0);
                 ball.add(panel);
             }
@@ -507,23 +518,42 @@
                 this.boostDrainRate = 1.5;
                 this.isBoosting = false;
                 
-                // Movement constants
-                this.acceleration = 0.12;
-                this.maxSpeed = 0.7;
-                this.turnSpeed = 0.025;
-                this.jumpForce = 0.4;
-                this.boostForce = 0.5;
+                // Movement constants - scaled for bigger arena
+                this.acceleration = 0.48;
+                this.maxSpeed = 2.8;
+                this.turnSpeed = 0.1;
+                this.jumpForce = 1.6;
+                this.boostForce = 2.0;
+                this.flipSpeed = 0.08;
                 
-                this.startPos = new THREE.Vector3(startX, 1, startZ);
+                // Rotation state for flips
+                this.pitch = 0;  // Forward/backward tilt
+                this.roll = 0;   // Side tilt
+                this.targetPitch = 0;
+                this.targetRoll = 0;
+                
+                this.startPos = new THREE.Vector3(startX, 4, startZ);
             }
 
             reset() {
                 this.mesh.position.copy(this.startPos);
                 this.velocity.set(0, 0, 0);
                 this.rotation = this.isPlayer ? 0 : Math.PI;
-                this.mesh.rotation.y = this.rotation;
+                this.pitch = 0;
+                this.roll = 0;
+                this.targetPitch = 0;
+                this.targetRoll = 0;
+                this.updateMeshRotation();
                 this.grounded = false;
                 this.canDoubleJump = true;
+            }
+
+            updateMeshRotation() {
+                this.mesh.rotation.y = this.rotation;
+                if (this.mesh.userData.bodyGroup) {
+                    this.mesh.userData.bodyGroup.rotation.x = this.pitch;
+                    this.mesh.userData.bodyGroup.rotation.z = this.roll;
+                }
             }
 
             update(input, dt) {
@@ -532,25 +562,34 @@
                     const forward = new THREE.Vector3(0, 0, 1);
                     forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rotation);
                     this.velocity.add(forward.multiplyScalar(this.acceleration));
+                    // Tilt forward when accelerating
+                    if (this.grounded) this.targetPitch = -0.15;
                 }
                 if (input.backward) {
                     const backward = new THREE.Vector3(0, 0, -1);
                     backward.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rotation);
                     this.velocity.add(backward.multiplyScalar(this.acceleration * 0.6));
+                    if (this.grounded) this.targetPitch = 0.15;
                 }
-                if (input.left && this.grounded) {
-                    this.angularVelocity += this.turnSpeed;
-                }
-                if (input.right && this.grounded) {
-                    this.angularVelocity -= this.turnSpeed;
+                
+                // Reset pitch target when not moving
+                if (!input.forward && !input.backward) {
+                    this.targetPitch *= 0.9;
                 }
 
-                // Air steering (reduced significantly)
-                if (input.left && !this.grounded) {
-                    this.angularVelocity += this.turnSpeed * 0.15;
+                // Steering
+                if (input.left) {
+                    this.angularVelocity += this.grounded ? this.turnSpeed : this.turnSpeed * 0.3;
+                    if (this.grounded) this.targetRoll = 0.2;
                 }
-                if (input.right && !this.grounded) {
-                    this.angularVelocity -= this.turnSpeed * 0.15;
+                if (input.right) {
+                    this.angularVelocity -= this.grounded ? this.turnSpeed : this.turnSpeed * 0.3;
+                    if (this.grounded) this.targetRoll = -0.2;
+                }
+                
+                // Reset roll when not steering
+                if (!input.left && !input.right) {
+                    this.targetRoll *= 0.85;
                 }
 
                 // Jump
@@ -559,11 +598,22 @@
                         this.velocity.y = this.jumpForce;
                         this.grounded = false;
                         this.canDoubleJump = true;
+                        // Tuck for jump
+                        this.targetPitch = 0.3;
                     } else if (this.canDoubleJump) {
-                        this.velocity.y = this.jumpForce * 0.8;
+                        // FLIP! Do a barrel roll
+                        this.velocity.y = this.jumpForce * 0.6;
                         this.canDoubleJump = false;
-                        // Add flip rotation
-                        this.angularVelocity += (Math.random() - 0.5) * 0.3;
+                        
+                        // Determine flip direction based on input
+                        let flipDir = 1;
+                        if (input.left) flipDir = 1;
+                        else if (input.right) flipDir = -1;
+                        
+                        // Apply strong roll for flip
+                        this.roll += flipDir * Math.PI * 0.5;
+                        // Add some pitch for front flip
+                        this.pitch -= 0.8;
                     }
                     input.jumpHandled = true;
                 }
@@ -593,8 +643,13 @@
 
                 // Apply rotation
                 this.rotation += this.angularVelocity;
-                this.angularVelocity *= 0.9;
-                this.mesh.rotation.y = this.rotation;
+                this.angularVelocity *= 0.85;
+                
+                // Smooth pitch and roll toward targets
+                this.pitch += (this.targetPitch - this.pitch) * 0.15;
+                this.roll += (this.targetRoll - this.roll) * 0.15;
+                
+                this.updateMeshRotation();
 
                 // Apply gravity
                 this.velocity.y -= GRAVITY;
@@ -606,6 +661,9 @@
                 } else {
                     this.velocity.x *= AIR_FRICTION;
                     this.velocity.z *= AIR_FRICTION;
+                    // Air control - can tilt to influence direction
+                    if (input.forward) this.pitch -= 0.01;
+                    if (input.backward) this.pitch += 0.01;
                 }
 
                 // Clamp horizontal speed
@@ -620,10 +678,14 @@
                 this.mesh.position.add(this.velocity);
 
                 // Ground collision
-                if (this.mesh.position.y < 1) {
-                    this.mesh.position.y = 1;
+                const groundY = 4; // Scaled for bigger cars
+                if (this.mesh.position.y < groundY) {
+                    this.mesh.position.y = groundY;
                     this.velocity.y = 0;
                     this.grounded = true;
+                    // Smooth out pitch on landing
+                    this.pitch *= 0.7;
+                    this.roll *= 0.7;
                 } else {
                     this.grounded = false;
                 }
@@ -776,20 +838,20 @@
                 const forward = new THREE.Vector3(0, 0, 1);
                 forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), carRot);
                 
-                // Collision point: front of the car
+                // Collision point: front of the car (scaled)
                 const collisionPoint = new THREE.Vector3();
                 collisionPoint.copy(carPos);
-                collisionPoint.add(forward.clone().multiplyScalar(2));
+                collisionPoint.add(forward.clone().multiplyScalar(8));
                 
                 // Also add some upward offset so hits at car level work
-                collisionPoint.y += 0.5;
+                collisionPoint.y += 2;
                 
                 const dx = this.mesh.position.x - collisionPoint.x;
                 const dy = this.mesh.position.y - collisionPoint.y;
                 const dz = this.mesh.position.z - collisionPoint.z;
                 const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
                 
-                const collisionRadius = 2.5; // Effective collision radius
+                const collisionRadius = 10; // Effective collision radius (scaled)
                 
                 if (distance < collisionRadius && distance > 0) {
                     // Collision! Calculate proper normal pointing away from car
@@ -835,7 +897,7 @@
                 const centerDz = this.mesh.position.z - carPos.z;
                 const centerDist = Math.sqrt(centerDx * centerDx + centerDy * centerDy + centerDz * centerDz);
                 
-                const carRadius = 2.8;
+                const carRadius = 12; // Effective collision radius (scaled)
                 if (centerDist < carRadius && centerDist > 0) {
                     // Hitting the side of the car
                     const cnx = centerDx / centerDist;
