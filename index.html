@@ -346,8 +346,8 @@
             arena.add(dot);
 
             // Walls
-            const wallMat = new THREE.MeshLambertMaterial({ color: COLORS.wall });
-            const wallDarkMat = new THREE.MeshLambertMaterial({ color: COLORS.wallDark });
+            const wallMat = new THREE.MeshLambertMaterial({ color: COLORS.wall, transparent: true, opacity: 0.7 });
+            const wallDarkMat = new THREE.MeshLambertMaterial({ color: COLORS.wallDark, transparent: true, opacity: 0.7 });
 
             // Side walls (left and right)
             const sideWallGeo = new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, ARENA_LENGTH);
@@ -365,8 +365,8 @@
             arena.add(rightWall);
 
             // Back walls (with goal openings)
-            const backWallMat = new THREE.MeshLambertMaterial({ color: COLORS.goalPlayer });
-            const frontWallMat = new THREE.MeshLambertMaterial({ color: COLORS.goalAI });
+            const backWallMat = new THREE.MeshLambertMaterial({ color: COLORS.goalPlayer, transparent: true, opacity: 0.7 });
+            const frontWallMat = new THREE.MeshLambertMaterial({ color: COLORS.goalAI, transparent: true, opacity: 0.7 });
 
             // AI goal (back - positive Z)
             const goalOpeningZ = ARENA_LENGTH / 2;
@@ -471,7 +471,7 @@
             }
 
             // Ceiling border (decorative)
-            const ceilMat = new THREE.MeshLambertMaterial({ color: COLORS.wallDark });
+            const ceilMat = new THREE.MeshLambertMaterial({ color: COLORS.wallDark, transparent: true, opacity: 0.5 });
             const ceilGeo = new THREE.BoxGeometry(ARENA_WIDTH + WALL_THICKNESS * 2, 1, ARENA_LENGTH + WALL_THICKNESS * 2);
             const ceil = new THREE.Mesh(ceilGeo, ceilMat);
             ceil.position.y = WALL_HEIGHT + 0.5;
