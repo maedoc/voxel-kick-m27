@@ -1,0 +1,12 @@
+{
+  "name": "voxel-kick-m27",
+  "version": "1.0.0",
+  "description": "Low-gravity voxel car soccer game",
+  "scripts": {
+    "build": "mkdir -p dist && cp index.html dist/",
+    "serve": "npx serve ."
+  },
+  "keywords": ["game", "voxel", "soccer", "threejs"],
+  "author": "",
+  "license": "ISC"
+}

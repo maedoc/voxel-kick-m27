@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voxel Kick - Low-Gravity Car Soccer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            overflow: hidden;
+            background: #2D1B4E;
+            font-family: 'Press Start 2P', monospace;
+        }
+        #game-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        canvas {
+            display: block;
+        }
+        #ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+        #score-display {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #fff;
+            font-size: 24px;
+            text-shadow: 3px 3px 0 #2D1B4E, -1px -1px 0 #2D1B4E;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        #player-score {
+            color: #7EC8E3;
+        }
+        #ai-score {
+            color: #E3A57D;
+        }
+        #boost-container {
+            position: absolute;
+            top: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 150px;
+            height: 12px;
+            background: rgba(0,0,0,0.5);
+            border: 2px solid #fff;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        #boost-bar {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, #FFD700, #FFFACD);
+            transition: width 0.1s;
+        }
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(255,255,255,0.7);
+            font-size: 8px;
+            line-height: 1.8;
+            text-shadow: 1px 1px 0 #2D1B4E;
+        }
+        #controls span {
+            color: #FFD700;
+        }
+        #title {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #FFD700;
+            font-size: 12px;
+            text-shadow: 2px 2px 0 #2D1B4E;
+        }
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #FFD700;
+            font-size: 32px;
+            text-shadow: 4px 4px 0 #2D1B4E;
+            opacity: 0;
+            transition: opacity 0.3s;
+            text-align: center;
+        }
+        #message.show {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="ui-overlay">
+            <div id="title">VOXEL KICK</div>
+            <div id="score-display">
+                <span id="player-score">0</span>
+                <span>-</span>
+                <span id="ai-score">0</span>
+            </div>
+            <div id="boost-container">
+                <div id="boost-bar"></div>
+            </div>
+            <div id="controls">
+                <span>W/S</span> - Drive<br>
+                <span>A/D</span> - Steer<br>
+                <span>SPACE</span> - Jump (x2)<br>
+                <span>SHIFT</span> - Boost
+            </div>
+            <div id="message"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // ============================================
+        // VOXEL KICK - Low Gravity Car Soccer
+        // ============================================
+
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x2D1B4E);
+        scene.fog = new THREE.Fog(0x2D1B4E, 50, 150);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.getElementById('game-container').insertBefore(renderer.domElement, document.getElementById('ui-overlay'));
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x8866aa, 0.6);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(30, 50, 30);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        directionalLight.shadow.camera.near = 10;
+        directionalLight.shadow.camera.far = 150;
+        directionalLight.shadow.camera.left = -60;
+        directionalLight.shadow.camera.right = 60;
+        directionalLight.shadow.camera.top = 60;
+        directionalLight.shadow.camera.bottom = -60;
+        scene.add(directionalLight);
+
+        const backLight = new THREE.DirectionalLight(0x6644aa, 0.3);
+        backLight.position.set(-20, 30, -20);
+        scene.add(backLight);
+
+        // Constants
+        const ARENA_WIDTH = 80;
+        const ARENA_LENGTH = 100;
+        const WALL_HEIGHT = 20;
+        const WALL_THICKNESS = 3;
+        const GOAL_WIDTH = 18;
+        const GOAL_HEIGHT = 10;
+        const GRAVITY = 0.015;
+        const GROUND_FRICTION = 0.98;
+        const AIR_FRICTION = 0.995;
+        const BALL_RESTITUTION = 0.75;
+        const CAR_RESTITUTION = 0.3;
+
+        // Colors
+        const COLORS = {
+            player: 0x7EC8E3,
+            playerDark: 0x5A9AB8,
+            ai: 0xE3A57D,
+            aiDark: 0xB8855F,
+            ball: 0xF5F5DC,
+            ballAccent: 0xFFD700,
+            ground: 0x4A7C59,
+            groundDark: 0x3D6B4A,
+            wall: 0xE8D5E0,
+            wallDark: 0xD4B8C4,
+            goalPlayer: 0x98D8C8,
+            goalAI: 0xFFB6C1,
+            boost: 0xFFFACD
+        };
+
+        // ============================================
+        // VOXEL HELPERS
+        // ============================================
+
+        function createVoxelBox(width, height, depth, color, addTo = null) {
+            const geometry = new THREE.BoxGeometry(width, height, depth);
+            const material = new THREE.MeshLambertMaterial({ color });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            if (addTo !== null) addTo.add(mesh);
+            return mesh;
+        }
+
+        function createVoxelCar(color, darkColor) {
+            const car = new THREE.Group();
+
+            // Main body
+            createVoxelBox(3, 1.2, 4, color, car);
+            
+            // Cabin
+            createVoxelBox(2.4, 0.8, 2, darkColor, car);
+            const cabin = createVoxelBox(2.2, 0.6, 1.8, 0x333344, car);
+            cabin.position.y = 0.5;
+            cabin.position.z = -0.2;
+
+            // Hood slope
+            const hood = createVoxelBox(2.8, 0.4, 1, color, car);
+            hood.position.z = 1.2;
+            hood.position.y = 0.2;
+
+            // Rear
+            const rear = createVoxelBox(2.8, 0.6, 0.8, darkColor, car);
+            rear.position.z = -1.8;
+            rear.position.y = 0.2;
+
+            // Wheels
+            const wheelGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.4, 8);
+            const wheelMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
+            
+            const wheelPositions = [
+                [-1.5, -0.5, 1.2],
+                [1.5, -0.5, 1.2],
+                [-1.5, -0.5, -1.2],
+                [1.5, -0.5, -1.2]
+            ];
+            
+            wheelPositions.forEach(pos => {
+                const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+                wheel.rotation.z = Math.PI / 2;
+                wheel.position.set(...pos);
+                wheel.castShadow = true;
+                car.add(wheel);
+            });
+
+            // Headlights
+            const lightGeo = new THREE.BoxGeometry(0.3, 0.2, 0.1);
+            const lightMat = new THREE.MeshBasicMaterial({ color: 0xFFFFAA });
+            const lightL = new THREE.Mesh(lightGeo, lightMat);
+            lightL.position.set(-0.8, 0, 2);
+            car.add(lightL);
+            const lightR = new THREE.Mesh(lightGeo, lightMat);
+            lightR.position.set(0.8, 0, 2);
+            car.add(lightR);
+
+            // Boost exhaust
+            const exhaustGeo = new THREE.ConeGeometry(0.4, 1, 6);
+            const exhaustMat = new THREE.MeshBasicMaterial({ color: COLORS.boost, transparent: true, opacity: 0 });
+            const exhaust = new THREE.Mesh(exhaustGeo, exhaustMat);
+            exhaust.rotation.x = -Math.PI / 2;
+            exhaust.position.z = -2.5;
+            car.add(exhaust);
+            car.userData.exhaust = exhaust;
+
+            return car;
+        }
+
+        function createVoxelBall() {
+            const ball = new THREE.Group();
+            
+            // Create icosphere approximation
+            const segments = 2;
+            const radius = 2;
+            
+            // Core ball
+            const coreGeo = new THREE.IcosahedronGeometry(radius, segments);
+            const coreMat = new THREE.MeshLambertMaterial({ color: COLORS.ball, flatShading: true });
+            const core = new THREE.Mesh(coreGeo, coreMat);
+            core.castShadow = true;
+            ball.add(core);
+
+            // Accent panels
+            const panelGeo = new THREE.BoxGeometry(1.5, 1.5, 0.3);
+            const panelMat = new THREE.MeshLambertMaterial({ color: COLORS.ballAccent });
+            
+            for (let i = 0; i < 6; i++) {
+                const panel = new THREE.Mesh(panelGeo, panelMat);
+                const angle = (i / 6) * Math.PI * 2;
+                panel.position.x = Math.cos(angle) * (radius + 0.1);
+                panel.position.z = Math.sin(angle) * (radius + 0.1);
+                panel.lookAt(0, 0, 0);
+                ball.add(panel);
+            }
+
+            return ball;
+        }
+
+        function createArena() {
+            const arena = new THREE.Group();
+
+            // Ground
+            const groundGeo = new THREE.BoxGeometry(ARENA_WIDTH, 1, ARENA_LENGTH);
+            const groundMat = new THREE.MeshLambertMaterial({ color: COLORS.ground });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.position.y = -0.5;
+            ground.receiveShadow = true;
+            arena.add(ground);
+
+            // Ground pattern
+            const lineMat = new THREE.MeshBasicMaterial({ color: COLORS.groundDark });
+            for (let x = -ARENA_WIDTH/2 + 10; x < ARENA_WIDTH/2; x += 10) {
+                const lineGeo = new THREE.BoxGeometry(0.2, 0.1, ARENA_LENGTH);
+                const line = new THREE.Mesh(lineGeo, lineMat);
+                line.position.set(x, 0.01, 0);
+                arena.add(line);
+            }
+            for (let z = -ARENA_LENGTH/2 + 10; z < ARENA_LENGTH/2; z += 10) {
+                const lineGeo = new THREE.BoxGeometry(ARENA_WIDTH, 0.1, 0.2);
+                const line = new THREE.Mesh(lineGeo, lineMat);
+                line.position.set(0, 0.01, z);
+                arena.add(line);
+            }
+
+            // Center circle
+            const circleGeo = new THREE.RingGeometry(5, 5.3, 32);
+            const circle = new THREE.Mesh(circleGeo, lineMat);
+            circle.rotation.x = -Math.PI / 2;
+            circle.position.y = 0.02;
+            arena.add(circle);
+
+            // Center dot
+            const dotGeo = new THREE.CircleGeometry(0.8, 16);
+            const dot = new THREE.Mesh(dotGeo, lineMat);
+            dot.rotation.x = -Math.PI / 2;
+            dot.position.y = 0.02;
+            arena.add(dot);
+
+            // Walls
+            const wallMat = new THREE.MeshLambertMaterial({ color: COLORS.wall });
+            const wallDarkMat = new THREE.MeshLambertMaterial({ color: COLORS.wallDark });
+
+            // Side walls (left and right)
+            const sideWallGeo = new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, ARENA_LENGTH);
+            
+            const leftWall = new THREE.Mesh(sideWallGeo, wallMat);
+            leftWall.position.set(-ARENA_WIDTH/2 - WALL_THICKNESS/2, WALL_HEIGHT/2, 0);
+            leftWall.castShadow = true;
+            leftWall.receiveShadow = true;
+            arena.add(leftWall);
+
+            const rightWall = new THREE.Mesh(sideWallGeo, wallMat);
+            rightWall.position.set(ARENA_WIDTH/2 + WALL_THICKNESS/2, WALL_HEIGHT/2, 0);
+            rightWall.castShadow = true;
+            rightWall.receiveShadow = true;
+            arena.add(rightWall);
+
+            // Back walls (with goal openings)
+            const backWallMat = new THREE.MeshLambertMaterial({ color: COLORS.goalPlayer });
+            const frontWallMat = new THREE.MeshLambertMaterial({ color: COLORS.goalAI });
+
+            // AI goal (back - positive Z)
+            const goalOpeningZ = ARENA_LENGTH / 2;
+            
+            // Left section of back wall
+            const backLeftGeo = new THREE.BoxGeometry(ARENA_WIDTH - GOAL_WIDTH, WALL_HEIGHT, WALL_THICKNESS);
+            const backLeft = new THREE.Mesh(backLeftGeo, backWallMat);
+            backLeft.position.set(-GOAL_WIDTH/2, WALL_HEIGHT/2, goalOpeningZ + WALL_THICKNESS/2);
+            backLeft.castShadow = true;
+            arena.add(backLeft);
+
+            // Right section of back wall
+            const backRight = new THREE.Mesh(backLeftGeo, backWallMat);
+            backRight.position.set(GOAL_WIDTH/2, WALL_HEIGHT/2, goalOpeningZ + WALL_THICKNESS/2);
+            backRight.castShadow = true;
+            arena.add(backRight);
+
+            // Top section above goal
+            const backTopGeo = new THREE.BoxGeometry(GOAL_WIDTH, WALL_HEIGHT - GOAL_HEIGHT, WALL_THICKNESS);
+            const backTop = new THREE.Mesh(backTopGeo, backWallMat);
+            backTop.position.set(0, GOAL_HEIGHT + (WALL_HEIGHT - GOAL_HEIGHT)/2, goalOpeningZ + WALL_THICKNESS/2);
+            backTop.castShadow = true;
+            arena.add(backTop);
+
+            // Goal posts
+            const postGeo = new THREE.BoxGeometry(1.5, GOAL_HEIGHT, WALL_THICKNESS);
+            const postMat = new THREE.MeshLambertMaterial({ color: 0xFFFFFF });
+            
+            const postLeft = new THREE.Mesh(postGeo, postMat);
+            postLeft.position.set(-GOAL_WIDTH/2 - 0.75, GOAL_HEIGHT/2, goalOpeningZ + WALL_THICKNESS/2);
+            arena.add(postLeft);
+
+            const postRight = new THREE.Mesh(postGeo, postMat);
+            postRight.position.set(GOAL_WIDTH/2 + 0.75, GOAL_HEIGHT/2, goalOpeningZ + WALL_THICKNESS/2);
+            arena.add(postRight);
+
+            // Player goal (front - negative Z)
+            const frontLeft = new THREE.Mesh(backLeftGeo, frontWallMat);
+            frontLeft.position.set(-GOAL_WIDTH/2, WALL_HEIGHT/2, -goalOpeningZ - WALL_THICKNESS/2);
+            frontLeft.castShadow = true;
+            arena.add(frontLeft);
+
+            const frontRight = new THREE.Mesh(backLeftGeo, frontWallMat);
+            frontRight.position.set(GOAL_WIDTH/2, WALL_HEIGHT/2, -goalOpeningZ - WALL_THICKNESS/2);
+            frontRight.castShadow = true;
+            arena.add(frontRight);
+
+            const frontTop = new THREE.Mesh(backTopGeo, frontWallMat);
+            frontTop.position.set(0, GOAL_HEIGHT + (WALL_HEIGHT - GOAL_HEIGHT)/2, -goalOpeningZ - WALL_THICKNESS/2);
+            frontTop.castShadow = true;
+            arena.add(frontTop);
+
+            const fpLeft = new THREE.Mesh(postGeo, postMat);
+            fpLeft.position.set(-GOAL_WIDTH/2 - 0.75, GOAL_HEIGHT/2, -goalOpeningZ - WALL_THICKNESS/2);
+            arena.add(fpLeft);
+
+            const fpRight = new THREE.Mesh(postGeo, postMat);
+            fpRight.position.set(GOAL_WIDTH/2 + 0.75, GOAL_HEIGHT/2, -goalOpeningZ - WALL_THICKNESS/2);
+            arena.add(fpRight);
+
+            // Goal nets (simple grid)
+            const netMat = new THREE.LineBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.3 });
+            
+            // Back goal net
+            for (let y = 0; y < GOAL_HEIGHT; y += 1.5) {
+                const points = [
+                    new THREE.Vector3(-GOAL_WIDTH/2, y, goalOpeningZ + 3),
+                    new THREE.Vector3(GOAL_WIDTH/2, y, goalOpeningZ + 3)
+                ];
+                const geo = new THREE.BufferGeometry().setFromPoints(points);
+                const line = new THREE.Line(geo, netMat);
+                arena.add(line);
+            }
+            for (let x = -GOAL_WIDTH/2; x <= GOAL_WIDTH/2; x += 2) {
+                const points = [
+                    new THREE.Vector3(x, 0, goalOpeningZ + 3),
+                    new THREE.Vector3(x, GOAL_HEIGHT, goalOpeningZ + 3)
+                ];
+                const geo = new THREE.BufferGeometry().setFromPoints(points);
+                const line = new THREE.Line(geo, netMat);
+                arena.add(line);
+            }
+
+            // Front goal net
+            for (let y = 0; y < GOAL_HEIGHT; y += 1.5) {
+                const points = [
+                    new THREE.Vector3(-GOAL_WIDTH/2, y, -goalOpeningZ - 3),
+                    new THREE.Vector3(GOAL_WIDTH/2, y, -goalOpeningZ - 3)
+                ];
+                const geo = new THREE.BufferGeometry().setFromPoints(points);
+                const line = new THREE.Line(geo, netMat);
+                arena.add(line);
+            }
+            for (let x = -GOAL_WIDTH/2; x <= GOAL_WIDTH/2; x += 2) {
+                const points = [
+                    new THREE.Vector3(x, 0, -goalOpeningZ - 3),
+                    new THREE.Vector3(x, GOAL_HEIGHT, -goalOpeningZ - 3)
+                ];
+                const geo = new THREE.BufferGeometry().setFromPoints(points);
+                const line = new THREE.Line(geo, netMat);
+                arena.add(line);
+            }
+
+            // Ceiling border (decorative)
+            const ceilMat = new THREE.MeshLambertMaterial({ color: COLORS.wallDark });
+            const ceilGeo = new THREE.BoxGeometry(ARENA_WIDTH + WALL_THICKNESS * 2, 1, ARENA_LENGTH + WALL_THICKNESS * 2);
+            const ceil = new THREE.Mesh(ceilGeo, ceilMat);
+            ceil.position.y = WALL_HEIGHT + 0.5;
+            arena.add(ceil);
+
+            return arena;
+        }
+
+        // ============================================
+        // GAME ENTITIES
+        // ============================================
+
+        class Car {
+            constructor(isPlayer, startX, startZ) {
+                this.isPlayer = isPlayer;
+                const color = isPlayer ? COLORS.player : COLORS.ai;
+                const darkColor = isPlayer ? COLORS.playerDark : COLORS.aiDark;
+                this.mesh = createVoxelCar(color, darkColor);
+                this.mesh.position.set(startX, 1, startZ);
+                scene.add(this.mesh);
+
+                // Physics
+                this.velocity = new THREE.Vector3();
+                this.angularVelocity = 0;
+                this.rotation = 0; // Y rotation in radians
+                
+                // State
+                this.grounded = false;
+                this.canDoubleJump = true;
+                this.boost = 100;
+                this.maxBoost = 100;
+                this.boostRegenRate = 0.3;
+                this.boostDrainRate = 1.5;
+                this.isBoosting = false;
+                
+                // Movement constants
+                this.acceleration = 0.12;
+                this.maxSpeed = 0.7;
+                this.turnSpeed = 0.025;
+                this.jumpForce = 0.4;
+                this.boostForce = 0.5;
+                
+                this.startPos = new THREE.Vector3(startX, 1, startZ);
+            }
+
+            reset() {
+                this.mesh.position.copy(this.startPos);
+                this.velocity.set(0, 0, 0);
+                this.rotation = this.isPlayer ? 0 : Math.PI;
+                this.mesh.rotation.y = this.rotation;
+                this.grounded = false;
+                this.canDoubleJump = true;
+            }
+
+            update(input, dt) {
+                // Handle input
+                if (input.forward) {
+                    const forward = new THREE.Vector3(0, 0, 1);
+                    forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rotation);
+                    this.velocity.add(forward.multiplyScalar(this.acceleration));
+                }
+                if (input.backward) {
+                    const backward = new THREE.Vector3(0, 0, -1);
+                    backward.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rotation);
+                    this.velocity.add(backward.multiplyScalar(this.acceleration * 0.6));
+                }
+                if (input.left && this.grounded) {
+                    this.angularVelocity += this.turnSpeed;
+                }
+                if (input.right && this.grounded) {
+                    this.angularVelocity -= this.turnSpeed;
+                }
+
+                // Air steering (reduced significantly)
+                if (input.left && !this.grounded) {
+                    this.angularVelocity += this.turnSpeed * 0.15;
+                }
+                if (input.right && !this.grounded) {
+                    this.angularVelocity -= this.turnSpeed * 0.15;
+                }
+
+                // Jump
+                if (input.jump && !input.jumpHandled) {
+                    if (this.grounded) {
+                        this.velocity.y = this.jumpForce;
+                        this.grounded = false;
+                        this.canDoubleJump = true;
+                    } else if (this.canDoubleJump) {
+                        this.velocity.y = this.jumpForce * 0.8;
+                        this.canDoubleJump = false;
+                        // Add flip rotation
+                        this.angularVelocity += (Math.random() - 0.5) * 0.3;
+                    }
+                    input.jumpHandled = true;
+                }
+
+                // Boost
+                if (input.boost && this.boost > 0) {
+                    this.isBoosting = true;
+                    this.boost -= this.boostDrainRate;
+                    if (this.boost < 0) this.boost = 0;
+                    
+                    const forward = new THREE.Vector3(0, 0, 1);
+                    forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rotation);
+                    this.velocity.add(forward.multiplyScalar(this.boostForce));
+                    
+                    // Boost particles
+                    this.mesh.userData.exhaust.material.opacity = 0.8;
+                    this.mesh.userData.exhaust.scale.setScalar(0.8 + Math.random() * 0.4);
+                } else {
+                    this.isBoosting = false;
+                    this.mesh.userData.exhaust.material.opacity = Math.max(0, this.mesh.userData.exhaust.material.opacity - 0.1);
+                }
+
+                // Boost regeneration
+                if (this.grounded && !input.boost) {
+                    this.boost = Math.min(this.maxBoost, this.boost + this.boostRegenRate);
+                }
+
+                // Apply rotation
+                this.rotation += this.angularVelocity;
+                this.angularVelocity *= 0.9;
+                this.mesh.rotation.y = this.rotation;
+
+                // Apply gravity
+                this.velocity.y -= GRAVITY;
+
+                // Apply friction
+                if (this.grounded) {
+                    this.velocity.x *= GROUND_FRICTION;
+                    this.velocity.z *= GROUND_FRICTION;
+                } else {
+                    this.velocity.x *= AIR_FRICTION;
+                    this.velocity.z *= AIR_FRICTION;
+                }
+
+                // Clamp horizontal speed
+                const horizontalSpeed = Math.sqrt(this.velocity.x ** 2 + this.velocity.z ** 2);
+                if (horizontalSpeed > this.maxSpeed) {
+                    const scale = this.maxSpeed / horizontalSpeed;
+                    this.velocity.x *= scale;
+                    this.velocity.z *= scale;
+                }
+
+                // Apply velocity
+                this.mesh.position.add(this.velocity);
+
+                // Ground collision
+                if (this.mesh.position.y < 1) {
+                    this.mesh.position.y = 1;
+                    this.velocity.y = 0;
+                    this.grounded = true;
+                } else {
+                    this.grounded = false;
+                }
+
+                // Wall collisions
+                const halfWidth = ARENA_WIDTH / 2 - 2;
+                const halfLength = ARENA_LENGTH / 2 - 2;
+
+                if (this.mesh.position.x < -halfWidth) {
+                    this.mesh.position.x = -halfWidth;
+                    this.velocity.x *= -CAR_RESTITUTION;
+                }
+                if (this.mesh.position.x > halfWidth) {
+                    this.mesh.position.x = halfWidth;
+                    this.velocity.x *= -CAR_RESTITUTION;
+                }
+                if (this.mesh.position.z < -halfLength) {
+                    // Check if in goal
+                    if (Math.abs(this.mesh.position.x) < GOAL_WIDTH / 2 && this.mesh.position.y < GOAL_HEIGHT) {
+                        // In goal area - goal for AI
+                    } else {
+                        this.mesh.position.z = -halfLength;
+                        this.velocity.z *= -CAR_RESTITUTION;
+                    }
+                }
+                if (this.mesh.position.z > halfLength) {
+                    if (Math.abs(this.mesh.position.x) < GOAL_WIDTH / 2 && this.mesh.position.y < GOAL_HEIGHT) {
+                        // In goal area - goal for player
+                    } else {
+                        this.mesh.position.z = halfLength;
+                        this.velocity.z *= -CAR_RESTITUTION;
+                    }
+                }
+
+                // Wall height collision
+                if (this.mesh.position.y > WALL_HEIGHT - 1) {
+                    this.mesh.position.y = WALL_HEIGHT - 1;
+                    this.velocity.y *= -0.3;
+                }
+            }
+
+            getBoundingBox() {
+                return {
+                    minX: this.mesh.position.x - 1.5,
+                    maxX: this.mesh.position.x + 1.5,
+                    minY: this.mesh.position.y - 1,
+                    maxY: this.mesh.position.y + 1,
+                    minZ: this.mesh.position.z - 2,
+                    maxZ: this.mesh.position.z + 2
+                };
+            }
+        }
+
+        class Ball {
+            constructor() {
+                this.mesh = createVoxelBall();
+                this.mesh.position.set(0, 3, 0);
+                scene.add(this.mesh);
+
+                this.velocity = new THREE.Vector3();
+                this.angularVelocity = new THREE.Vector3();
+                this.radius = 2;
+                
+                this.startPos = new THREE.Vector3(0, 3, 0);
+            }
+
+            reset() {
+                this.mesh.position.copy(this.startPos);
+                this.velocity.set(0, 0, 0);
+                this.angularVelocity.set(0, 0, 0);
+            }
+
+            update(dt) {
+                // Apply gravity
+                this.velocity.y -= GRAVITY * 0.8;
+
+                // Apply friction
+                this.velocity.x *= 0.995;
+                this.velocity.z *= 0.995;
+
+                // Apply angular velocity
+                this.mesh.rotation.x += this.angularVelocity.x;
+                this.mesh.rotation.y += this.angularVelocity.y;
+                this.mesh.rotation.z += this.angularVelocity.z;
+                this.angularVelocity.multiplyScalar(0.98);
+
+                // Apply velocity
+                this.mesh.position.add(this.velocity);
+
+                // Ground collision
+                if (this.mesh.position.y < this.radius) {
+                    this.mesh.position.y = this.radius;
+                    this.velocity.y *= -BALL_RESTITUTION;
+                    this.angularVelocity.x += this.velocity.z * 0.1;
+                    this.angularVelocity.z -= this.velocity.x * 0.1;
+                }
+
+                // Wall collisions
+                const halfWidth = ARENA_WIDTH / 2 - this.radius;
+                const halfLength = ARENA_LENGTH / 2 - this.radius;
+
+                if (this.mesh.position.x < -halfWidth) {
+                    this.mesh.position.x = -halfWidth;
+                    this.velocity.x *= -BALL_RESTITUTION;
+                    this.angularVelocity.z += this.velocity.y * 0.1;
+                }
+                if (this.mesh.position.x > halfWidth) {
+                    this.mesh.position.x = halfWidth;
+                    this.velocity.x *= -BALL_RESTITUTION;
+                    this.angularVelocity.z -= this.velocity.y * 0.1;
+                }
+                
+                // Front wall (player goal side - negative Z)
+                if (this.mesh.position.z < -halfLength) {
+                    // Check if in goal
+                    if (Math.abs(this.mesh.position.x) < GOAL_WIDTH / 2 && this.mesh.position.y < GOAL_HEIGHT) {
+                        // Score for AI - this is handled in game loop
+                    } else if (this.mesh.position.y < WALL_HEIGHT) {
+                        this.mesh.position.z = -halfLength;
+                        this.velocity.z *= -BALL_RESTITUTION;
+                        this.angularVelocity.x += this.velocity.y * 0.1;
+                    }
+                }
+                
+                // Back wall (AI goal side - positive Z)
+                if (this.mesh.position.z > halfLength) {
+                    if (Math.abs(this.mesh.position.x) < GOAL_WIDTH / 2 && this.mesh.position.y < GOAL_HEIGHT) {
+                        // Score for player - handled in game loop
+                    } else if (this.mesh.position.y < WALL_HEIGHT) {
+                        this.mesh.position.z = halfLength;
+                        this.velocity.z *= -BALL_RESTITUTION;
+                        this.angularVelocity.x -= this.velocity.y * 0.1;
+                    }
+                }
+
+                // Ceiling collision
+                if (this.mesh.position.y > WALL_HEIGHT - this.radius) {
+                    this.mesh.position.y = WALL_HEIGHT - this.radius;
+                    this.velocity.y *= -BALL_RESTITUTION;
+                }
+            }
+
+            checkCarCollision(car) {
+                // Use sphere-sphere collision for better direction
+                // Car collision point is in front based on rotation
+                const carPos = car.mesh.position;
+                const carRot = car.rotation;
+                
+                // Calculate car's forward direction
+                const forward = new THREE.Vector3(0, 0, 1);
+                forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), carRot);
+                
+                // Collision point: front of the car
+                const collisionPoint = new THREE.Vector3();
+                collisionPoint.copy(carPos);
+                collisionPoint.add(forward.clone().multiplyScalar(2));
+                
+                // Also add some upward offset so hits at car level work
+                collisionPoint.y += 0.5;
+                
+                const dx = this.mesh.position.x - collisionPoint.x;
+                const dy = this.mesh.position.y - collisionPoint.y;
+                const dz = this.mesh.position.z - collisionPoint.z;
+                const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                
+                const collisionRadius = 2.5; // Effective collision radius
+                
+                if (distance < collisionRadius && distance > 0) {
+                    // Collision! Calculate proper normal pointing away from car
+                    const nx = dx / distance;
+                    const ny = dy / distance;
+                    const nz = dz / distance;
+                    
+                    // Separate ball from collision point
+                    const overlap = collisionRadius - distance;
+                    this.mesh.position.x += nx * overlap;
+                    this.mesh.position.y += ny * overlap;
+                    this.mesh.position.z += nz * overlap;
+                    
+                    // Calculate relative velocity
+                    const relVelX = car.velocity.x - this.velocity.x;
+                    const relVelY = car.velocity.y - this.velocity.y;
+                    const relVelZ = car.velocity.z - this.velocity.z;
+                    const relVelDot = relVelX * nx + relVelY * ny + relVelZ * nz;
+                    
+                    if (relVelDot > 0) {
+                        // Strong impulse based on car's velocity + some extra push
+                        const impulse = relVelDot * 1.5;
+                        
+                        // Push ball away from car, inheriting car's velocity
+                        this.velocity.x = nx * impulse + car.velocity.x * 0.9;
+                        this.velocity.y = ny * impulse * 0.7 + Math.abs(car.velocity.y) * 0.5;
+                        this.velocity.z = nz * impulse + car.velocity.z * 0.9;
+                        
+                        // Add extra push in car's forward direction
+                        const forwardPush = 0.4;
+                        this.velocity.x += forward.x * forwardPush * Math.abs(car.velocity.z + 0.3);
+                        this.velocity.z += forward.z * forwardPush * Math.abs(car.velocity.z + 0.3);
+                        
+                        // Angular velocity from impact
+                        this.angularVelocity.x += car.angularVelocity * 1.5;
+                        this.angularVelocity.z -= relVelX * 0.15;
+                    }
+                }
+                
+                // Also check distance to car center for side/rear hits
+                const centerDx = this.mesh.position.x - carPos.x;
+                const centerDy = this.mesh.position.y - carPos.y;
+                const centerDz = this.mesh.position.z - carPos.z;
+                const centerDist = Math.sqrt(centerDx * centerDx + centerDy * centerDy + centerDz * centerDz);
+                
+                const carRadius = 2.8;
+                if (centerDist < carRadius && centerDist > 0) {
+                    // Hitting the side of the car
+                    const cnx = centerDx / centerDist;
+                    const cny = centerDy / centerDist;
+                    const cnz = centerDz / centerDist;
+                    
+                    const coverlap = carRadius - centerDist;
+                    this.mesh.position.x += cnx * coverlap;
+                    this.mesh.position.y += cny * coverlap;
+                    this.mesh.position.z += cnz * coverlap;
+                    
+                    const crevRelVelX = car.velocity.x - this.velocity.x;
+                    const crevRelVelY = car.velocity.y - this.velocity.y;
+                    const crevRelVelZ = car.velocity.z - this.velocity.z;
+                    const crevRelVelDot = crevRelVelX * cnx + crevRelVelY * cny + crevRelVelZ * cnz;
+                    
+                    if (crevRelVelDot > 0) {
+                        const cimpulse = crevRelVelDot * 1.3;
+                        this.velocity.x = cnx * cimpulse + car.velocity.x * 0.7;
+                        this.velocity.y = cny * cimpulse * 0.6;
+                        this.velocity.z = cnz * cimpulse + car.velocity.z * 0.7;
+                        
+                        // Add forward momentum from car
+                        this.velocity.x += forward.x * 0.3;
+                        this.velocity.z += forward.z * 0.3;
+                    }
+                }
+            }
+
+            checkGoal() {
+                const halfLength = ARENA_LENGTH / 2;
+                
+                // Check if ball crossed AI goal line (positive Z)
+                if (this.mesh.position.z > halfLength) {
+                    if (Math.abs(this.mesh.position.x) < GOAL_WIDTH / 2 && this.mesh.position.y < GOAL_HEIGHT) {
+                        return 'player'; // Player scored
+                    }
+                }
+                
+                // Check if ball crossed player goal line (negative Z)
+                if (this.mesh.position.z < -halfLength) {
+                    if (Math.abs(this.mesh.position.x) < GOAL_WIDTH / 2 && this.mesh.position.y < GOAL_HEIGHT) {
+                        return 'ai'; // AI scored
+                    }
+                }
+                
+                return null;
+            }
+        }
+
+        class AI {
+            constructor(car, ball) {
+                this.car = car;
+                this.ball = ball;
+                this.state = 'attack';
+                this.stateTimer = 0;
+                this.targetX = 0;
+                this.targetZ = 0;
+            }
+
+            update(dt) {
+                this.stateTimer += dt;
+
+                const ballPos = this.ball.mesh.position;
+                const carPos = this.car.mesh.position;
+                const carRot = this.car.rotation;
+
+                // Simple state machine
+                if (ballPos.z > 10) {
+                    // Ball in AI's half - defend
+                    this.state = 'defend';
+                } else if (ballPos.z < -10) {
+                    // Ball in player's half - attack
+                    this.state = 'attack';
+                } else {
+                    // Ball in middle - go for it
+                    this.state = 'attack';
+                }
+
+                // Calculate target
+                let targetX = ballPos.x;
+                let targetZ = ballPos.z;
+
+                if (this.state === 'defend') {
+                    // Position between ball and goal
+                    targetX = ballPos.x * 0.3;
+                    targetZ = Math.max(ballPos.z, 30);
+                }
+
+                // Add some prediction
+                targetX += this.ball.velocity.x * 10;
+                targetZ += this.ball.velocity.z * 10;
+
+                // Clamp to arena
+                targetX = Math.max(-ARENA_WIDTH/2 + 5, Math.min(ARENA_WIDTH/2 - 5, targetX));
+                targetZ = Math.max(-ARENA_LENGTH/2 + 5, Math.min(ARENA_LENGTH/2 - 5, targetZ));
+
+                // Calculate desired angle to target
+                const dx = targetX - carPos.x;
+                const dz = targetZ - carPos.z;
+                let targetAngle = Math.atan2(dx, dz);
+
+                // Normalize angle difference
+                let angleDiff = targetAngle - carRot;
+                while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+                while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+                // Input generation
+                const input = {
+                    forward: false,
+                    backward: false,
+                    left: false,
+                    right: false,
+                    jump: false,
+                    boost: false,
+                    jumpHandled: false
+                };
+
+                // Steering
+                if (angleDiff > 0.2) {
+                    input.right = true;
+                } else if (angleDiff < -0.2) {
+                    input.left = true;
+                }
+
+                // Distance to target
+                const dist = Math.sqrt(dx * dx + dz * dz);
+
+                // Speed control
+                if (dist > 5) {
+                    input.forward = true;
+                    
+                    // Boost when far from ball
+                    if (dist > 20 && Math.abs(angleDiff) < 0.5) {
+                        input.boost = true;
+                    }
+                } else if (dist < 3) {
+                    // Close to ball - slow down
+                    if (Math.abs(angleDiff) > 1) {
+                        input.backward = true;
+                    }
+                }
+
+                // Jump when ball is above or when jumping for aerial
+                if (ballPos.y > 3 && dist < 8 && this.car.grounded) {
+                    // Ball is in air, try to jump
+                    if (Math.random() < 0.05) {
+                        input.jump = true;
+                    }
+                }
+
+                // Double jump to flip toward ball
+                if (!this.car.grounded && this.car.canDoubleJump && dist < 10) {
+                    if (Math.abs(angleDiff) < 1 && Math.random() < 0.03) {
+                        input.jump = true;
+                    }
+                }
+
+                // Avoid walls
+                if (carPos.x < 5) input.right = true;
+                if (carPos.x > ARENA_WIDTH/2 - 5) input.left = true;
+                if (carPos.z > ARENA_LENGTH/2 - 5) input.backward = true;
+
+                return input;
+            }
+        }
+
+        // ============================================
+        // GAME SETUP
+        // ============================================
+
+        const arena = createArena();
+        scene.add(arena);
+
+        const playerCar = new Car(true, 0, -35);
+        const aiCar = new Car(false, 0, 35);
+        const ball = new Ball();
+        const ai = new AI(aiCar, ball);
+
+        // Camera position
+        const cameraOffset = new THREE.Vector3(0, 10, -18);
+        camera.position.copy(playerCar.mesh.position).add(cameraOffset);
+        camera.lookAt(playerCar.mesh.position);
+
+        // Input state
+        const input = {
+            forward: false,
+            backward: false,
+            left: false,
+            right: false,
+            jump: false,
+            boost: false,
+            jumpHandled: false
+        };
+
+        // Key handlers
+        document.addEventListener('keydown', (e) => {
+            switch(e.code) {
+                case 'KeyW': input.forward = true; break;
+                case 'KeyS': input.backward = true; break;
+                case 'KeyA': input.left = true; break;
+                case 'KeyD': input.right = true; break;
+                case 'Space': 
+                    input.jump = true; 
+                    input.jumpHandled = false;
+                    e.preventDefault();
+                    break;
+                case 'ShiftLeft':
+                case 'ShiftRight':
+                    input.boost = true;
+                    break;
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            switch(e.code) {
+                case 'KeyW': input.forward = false; break;
+                case 'KeyS': input.backward = false; break;
+                case 'KeyA': input.left = false; break;
+                case 'KeyD': input.right = false; break;
+                case 'Space': 
+                    input.jump = false; 
+                    input.jumpHandled = false;
+                    break;
+                case 'ShiftLeft':
+                case 'ShiftRight':
+                    input.boost = false;
+                    break;
+            }
+        });
+
+        // Score state
+        let playerScore = 0;
+        let aiScore = 0;
+        let goalMessageTimer = 0;
+
+        // UI elements
+        const playerScoreEl = document.getElementById('player-score');
+        const aiScoreEl = document.getElementById('ai-score');
+        const boostBar = document.getElementById('boost-bar');
+        const messageEl = document.getElementById('message');
+
+        function showMessage(text) {
+            messageEl.textContent = text;
+            messageEl.classList.add('show');
+            goalMessageTimer = 2;
+        }
+
+        function handleGoal(scorer) {
+            if (scorer === 'player') {
+                playerScore++;
+                playerScoreEl.textContent = playerScore;
+                showMessage('GOAL!');
+            } else {
+                aiScore++;
+                aiScoreEl.textContent = aiScore;
+                showMessage('AI SCORES!');
+            }
+            
+            // Reset positions
+            setTimeout(() => {
+                ball.reset();
+                playerCar.reset();
+                aiCar.reset();
+            }, 1000);
+        }
+
+        // ============================================
+        // GAME LOOP
+        // ============================================
+
+        let lastTime = performance.now();
+
+        function gameLoop() {
+            const now = performance.now();
+            const dt = Math.min((now - lastTime) / 16.67, 2); // Normalize to 60fps
+            lastTime = now;
+
+            // Update goal message timer
+            if (goalMessageTimer > 0) {
+                goalMessageTimer -= dt / 60;
+                if (goalMessageTimer <= 0) {
+                    messageEl.classList.remove('show');
+                }
+            }
+
+            // Get AI input
+            const aiInput = ai.update(dt);
+
+            // Update cars
+            playerCar.update(input, dt);
+            aiCar.update(aiInput, dt);
+
+            // Update ball
+            ball.update(dt);
+
+            // Check collisions
+            ball.checkCarCollision(playerCar);
+            ball.checkCarCollision(aiCar);
+
+            // Check goals
+            const goal = ball.checkGoal();
+            if (goal) {
+                handleGoal(goal);
+            }
+
+            // Update camera
+            const targetCameraPos = new THREE.Vector3();
+            const offset = new THREE.Vector3(0, 8, -16);
+            offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), playerCar.rotation);
+            targetCameraPos.copy(playerCar.mesh.position).add(offset);
+            
+            camera.position.lerp(targetCameraPos, 0.08);
+            
+            const lookTarget = new THREE.Vector3();
+            lookTarget.copy(playerCar.mesh.position);
+            lookTarget.y += 2;
+            camera.lookAt(lookTarget);
+
+            // Update boost UI
+            boostBar.style.width = `${playerCar.boost}%`;
+
+            // Render
+            renderer.render(scene, camera);
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start game
+        showMessage('GO!');
+        gameLoop();
+    </script>
+</body>
+</html>
